@@ -25,16 +25,20 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/discord-bot:latest
+        tags: ${{ secrets.DOCKER_USERNAME }}/platon-discord-bot:latest
 
     - name: Deploy to Server
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_HOST }}
+        port: 1022
         username: ${{ secrets.SERVER_USERNAME }}
         password: ${{ secrets.SERVER_PASSWORD }}
+        script_stop: true
+        timeout: 180s
+        command_timeout: 60s
         script: |
-          cd /path/to/your/bot
+          cd /home/${{ secrets.SERVER_USERNAME }}/platon-discord-bot
           echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
           docker-compose pull
