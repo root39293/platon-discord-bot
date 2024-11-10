@@ -1,0 +1,45 @@
+# 환경 변수
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 로그 파일
+*.log
+logs/
+bot.log
+
+# 데이터 파일
+data/*.json
+!data/.gitkeep
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# 기타
+*.bak
+*.tmp
+*.temp
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/ 
