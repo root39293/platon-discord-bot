@@ -38,13 +38,33 @@ jobs:
         timeout: 180s
         command_timeout: 60s
         script: |
+          # 디렉토리 생성
+          mkdir -p /home/${{ secrets.SERVER_USERNAME }}/platon-discord-bot
           cd /home/${{ secrets.SERVER_USERNAME }}/platon-discord-bot
+          
+          # docker-compose.yml 파일 생성
+          cat > docker-compose.yml << 'EOL'
+          version: '3.8'
+          
+          services:
+            bot:
+              image: ${{ secrets.DOCKER_USERNAME }}/platon-discord-bot:latest
+              container_name: platon-discord-bot
+              environment:
+                - BOT_TOKEN=${BOT_TOKEN}
+                - GEMINI_API_KEY=${GEMINI_API_KEY}
+              restart: unless-stopped
+          EOL
+          
+          # 환경 변수 설정
           echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          
+          # 도커 컨테이너 실행
           docker-compose pull
           docker-compose down
           docker-compose up -d
           
-          # 사용하지 않는 이미지 정리
+          # 정리
           docker image prune -af
           docker container prune -f
