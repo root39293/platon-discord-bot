@@ -43,7 +43,7 @@ jobs:
           cd /home/${{ secrets.SERVER_USERNAME }}/platon-discord-bot
           
           # docker-compose.yml 파일 생성
-          cat > docker-compose.yml << 'EOL'
+          cat > docker-compose.yml << EOL
           version: '3.8'
           
           services:
@@ -51,8 +51,8 @@ jobs:
               image: ${{ secrets.DOCKER_USERNAME }}/platon-discord-bot:latest
               container_name: platon-discord-bot
               environment:
-                - BOT_TOKEN=${BOT_TOKEN}
-                - GEMINI_API_KEY=${GEMINI_API_KEY}
+                - BOT_TOKEN=\${BOT_TOKEN}
+                - GEMINI_API_KEY=\${GEMINI_API_KEY}
               restart: unless-stopped
           EOL
           
