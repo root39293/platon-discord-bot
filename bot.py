@@ -28,7 +28,8 @@ class MyBot(commands.Bot):
         
         self.initial_extensions = [
             "cogs.todo",
-            "cogs.quotes"
+            "cogs.quotes",
+            "cogs.crawl_news"
         ]
 
     async def setup_hook(self):
