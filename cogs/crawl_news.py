@@ -105,7 +105,7 @@ class CrawlNews(commands.Cog):
         
         embed = discord.Embed(
             title="✅ 뉴스 채널 설정 완료",
-            description="매일 아침 9시에 이 채널에서 뉴스가 전송됩니다.",
+            description="설정한 게시판에서 3시간 간격으로 뉴스가 전송됩니다.",
             color=discord.Color.green()
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
