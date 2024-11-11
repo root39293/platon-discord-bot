@@ -96,6 +96,12 @@ class TodoView(View):
         await interaction.response.send_modal(modal)
 
     async def todo_button_callback(self, interaction: discord.Interaction):
+        # 할 일 목록 소유자 확인
+        content = interaction.message.content
+        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 할 일"):
+            await interaction.response.send_message("자신의 할 일만 수정할 수 있습니다.", ephemeral=True)
+            return
+
         custom_id = interaction.data["custom_id"]
         index = int(custom_id.split("_")[1])
         
@@ -114,6 +120,7 @@ class Todo(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.todos = {}  # {guild_id: {user_id: [TodoItem]}}
+        self.todo_messages = {}  # {guild_id: {user_id: message_id}}
         self.cleanup_task.start()
 
     def get_user_todos(self, user_id: str, guild_id: str) -> List[TodoItem]:
@@ -133,6 +140,7 @@ class Todo(commands.Cog):
     async def cleanup_task(self):
         """할 일 목록 초기화"""
         self.todos.clear()
+        self.todo_messages.clear()  # 메시지 ID도 초기화
         logging.info("할 일 목록이 초기화되었습니다.")
 
     @app_commands.command(name="todo", description="할 일 관리")
@@ -141,10 +149,33 @@ class Todo(commands.Cog):
             await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
             return
         
-        todos = self.get_user_todos(str(interaction.user.id), str(interaction.guild.id))
+        # 이전 메시지 삭제
+        guild_id = str(interaction.guild.id)
+        user_id = str(interaction.user.id)
+        
+        if guild_id in self.todo_messages and user_id in self.todo_messages[guild_id]:
+            try:
+                old_message_id = self.todo_messages[guild_id][user_id]
+                channel = interaction.channel
+                try:
+                    old_message = await channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except discord.NotFound:
+                    pass  # 메시지가 이미 삭제된 경우
+            except Exception as e:
+                logging.error(f"이전 메시지 삭제 중 오류 발생: {e}")
+
+        todos = self.get_user_todos(user_id, guild_id)
         view = TodoView(todos, self)
         content = self.create_todo_message(interaction.user, todos)
-        await interaction.response.send_message(content=content, view=view)
+        
+        # 새 메시지 전송 및 ID 저장
+        response = await interaction.response.send_message(content=content, view=view)
+        message = await interaction.original_response()
+        
+        if guild_id not in self.todo_messages:
+            self.todo_messages[guild_id] = {}
+        self.todo_messages[guild_id][user_id] = message.id
 
     def create_todo_message(self, user: discord.User, todos: List[TodoItem]) -> str:
         today = datetime.now(pytz.timezone('Asia/Seoul')).strftime("%Y년 %m월 %d일")
