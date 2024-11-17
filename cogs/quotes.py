@@ -38,7 +38,29 @@ class Quotes(commands.Cog):
         )
         self.scheduler.start()
 
-    @app_commands.command(name="명언설정", description="매일 아침 명언이 전송될 채널을 설정합니다")
+    @app_commands.command(name="명언조회", description="AI가 생성한 명언을 확인합니다")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def generate_quote_command(self, interaction: discord.Interaction):
+        """명언을 생성합니다"""
+        try:
+            await interaction.response.defer()
+            
+            quote_data = await self.generate_quote()
+            if not quote_data:
+                raise ValueError("명언 생성에 실패했습니다")
+                
+            embed = await self.send_quote_embed(quote_data)
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ 오류 발생",
+                description=f"명언 생성 중 오류가 발생했습니다:\n```{str(e)}```",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=error_embed, ephemeral=True)
+
+    @app_commands.command(name="명언알림설정", description="매일 아침 명언이 전송될 채널을 설정합니다")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_quote_channel(self, interaction: discord.Interaction):
         """명언이 전송될 채널을 설정합니다"""
@@ -159,28 +181,6 @@ class Quotes(commands.Cog):
     def cog_unload(self):
         """스케줄러 정리"""
         self.scheduler.shutdown()
-
-    @app_commands.command(name="명언생성", description="명언을 생성합니다")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def generate_quote_command(self, interaction: discord.Interaction):
-        """명언을 생성합니다"""
-        try:
-            await interaction.response.defer()
-            
-            quote_data = await self.generate_quote()
-            if not quote_data:
-                raise ValueError("명언 생성에 실패했습니다")
-                
-            embed = await self.send_quote_embed(quote_data)
-            await interaction.followup.send(embed=embed)
-            
-        except Exception as e:
-            error_embed = discord.Embed(
-                title="❌ 오류 발생",
-                description=f"명언 생성 중 오류가 발생했습니다:\n```{str(e)}```",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=error_embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Quotes(bot))

@@ -172,7 +172,7 @@ class Todo(commands.Cog):
         self.todo_messages.clear()  # 메시지 ID도 초기화
         logging.info("할 일 목록이 초기화되었습니다.")
 
-    @app_commands.command(name="todo", description="할 일 관리")
+    @app_commands.command(name="할일", description="할 일 목록을 관리합니다")
     async def todo(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)

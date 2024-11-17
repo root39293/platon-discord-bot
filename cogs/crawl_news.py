@@ -97,7 +97,23 @@ class CrawlNews(commands.Cog):
             embed = self.create_news_embed(news_items)
             await channel.send(embed=embed)
 
-    @app_commands.command(name="뉴스설정", description="뉴스가 전송될 채널을 설정합니다")
+    @app_commands.command(name="뉴스조회", description="실시간 뉴스를 조회합니다")
+    async def check_news(self, interaction: discord.Interaction):
+        """실시간 뉴스 조회"""
+        await interaction.response.defer() 
+        
+        try:
+            news_items = await self.fetch_news(self.news_url)
+            if news_items:
+                embed = self.create_news_embed(news_items)
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send("뉴스를 가져오는데 실패했습니다.", ephemeral=True)
+        except Exception as e:
+            logging.error(f"뉴스 조회 중 오류 발생: {e}")
+            await interaction.followup.send(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
+
+    @app_commands.command(name="뉴스알림설정", description="실시간 뉴스 알림을 받을 채널을 설정합니다")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_news_channel(self, interaction: discord.Interaction):
         """뉴스 채널 설정"""
@@ -109,23 +125,6 @@ class CrawlNews(commands.Cog):
             color=discord.Color.green()
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(name="뉴스테스트", description="뉴스 크롤링 테스트")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def test_news(self, interaction: discord.Interaction):
-        """뉴스 크롤링 테스트"""
-        await interaction.response.defer() 
-        
-        try:
-            news_items = await self.fetch_news(self.news_url)
-            if news_items:
-                embed = self.create_news_embed(news_items)
-                await interaction.followup.send(embed=embed)
-            else:
-                await interaction.followup.send("뉴스를 가져오는데 실패했습니다.", ephemeral=True)
-        except Exception as e:
-            logging.error(f"뉴스 테스트 중 오류 발생: {e}")
-            await interaction.followup.send(f"오류가 발생했습니다: {str(e)}", ephemeral=True)
 
     def cog_unload(self):
         """Cog 언로드 시 정리 작업"""

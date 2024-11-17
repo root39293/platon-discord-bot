@@ -265,13 +265,13 @@ class Finance(commands.Cog):
             
             # 등락 화살표 및 이모지
             if change_rate > 0:
-                change_emoji = "🔺"
+                change_emoji = "🔺"  # 빨간 상승 삼각형
                 price_trend = "상승" 
             elif change_rate < 0:
-                change_emoji = "🔻"
+                change_emoji = "⏬"  # 란 이중 하락 화살표 
                 price_trend = "하락"
             else:
-                change_emoji = "▪"
+                change_emoji = "➖"  # 보합
                 price_trend = "보합"
 
             # 24시간 거래대금
@@ -317,7 +317,7 @@ class Finance(commands.Cog):
             
         raise ValueError(f"'{query}'에 해당하는 코인을 찾을 수 없습니다.")
 
-    @app_commands.command(name="시세", description="암호화폐의 실시간 시세를 조회합니다")
+    @app_commands.command(name="코인시세", description="암호화폐의 실시간 시세를 조회합니다")
     @app_commands.describe(코인="코인 심볼 또는 이름 (예: BTC, 비트코인, ETH, 이더리움)")
     async def check_price(self, interaction: discord.Interaction, 코인: str):
         """특정 암호화폐 시세 조회"""
@@ -444,7 +444,7 @@ class Finance(commands.Cog):
         acc_trade_price_24h = market_data["acc_trade_price_24h"]
         
         # 가격 변동 화살표
-        change_emoji = "🔺" if change_rate > 0 else "🔻" if change_rate < 0 else "▪"
+        change_emoji = "🔺" if change_rate > 0 else "⏬" if change_rate < 0 else "➖"
         price_trend = "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
         
         embed.add_field(
@@ -475,7 +475,7 @@ class Finance(commands.Cog):
         except Exception as e:
             logging.error(f"시세 알림 중 오류 발생: {e}")
 
-    @app_commands.command(name="시세설정", description="실시간 시세 알림을 받을 채널을 설정합니다")
+    @app_commands.command(name="코인알림설정", description="실시간 시세 알림을 받을 채널을 설정합니다")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_price_channel(self, interaction: discord.Interaction):
         """시세 알림 채널 설정"""
