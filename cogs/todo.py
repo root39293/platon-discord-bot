@@ -87,9 +87,22 @@ class TodoView(View):
         self.add_item(add_button)
 
         for i, todo in enumerate(self.todos):
-            button = TodoButton(i, todo.completed)
-            button.callback = self.todo_button_callback
-            self.add_item(button)
+            # 완료 버튼
+            complete_button = TodoButton(i, todo.completed)
+            complete_button.callback = self.todo_button_callback
+            complete_button.row = i + 1  # 각 할 일마다 새로운 행
+            self.add_item(complete_button)
+
+            # 삭제 버튼
+            delete_button = Button(
+                label="삭제",
+                style=discord.ButtonStyle.danger,
+                emoji="🗑️",
+                custom_id=f"delete_todo_{i}",
+                row=i + 1  # 완료 버튼과 같은 행
+            )
+            delete_button.callback = self.delete_button_callback
+            self.add_item(delete_button)
 
     async def add_button_callback(self, interaction: discord.Interaction):
         modal = AddTodoModal()
@@ -106,6 +119,22 @@ class TodoView(View):
         index = int(custom_id.split("_")[1])
         
         self.todos[index].completed = not self.todos[index].completed
+        self.cog.save_user_todos(
+            str(interaction.user.id),
+            str(interaction.guild.id),
+            self.todos
+        )
+        
+        view = TodoView(self.todos, self.cog)
+        content = self.cog.create_todo_message(interaction.user, self.todos)
+        await interaction.response.edit_message(content=content, view=view)
+
+    async def delete_button_callback(self, interaction: discord.Interaction):
+        custom_id = interaction.data["custom_id"]
+        index = int(custom_id.split("_")[2])
+        
+        # 할 일 삭제
+        del self.todos[index]
         self.cog.save_user_todos(
             str(interaction.user.id),
             str(interaction.guild.id),
