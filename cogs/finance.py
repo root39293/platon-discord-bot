@@ -5,7 +5,8 @@ import aiohttp
 import logging
 from datetime import datetime
 import pytz
-from typing import Optional
+from typing import Optional, List, Dict
+from discord.ext import tasks
 
 COIN_NAMES = {
     'BTC': '비트코인',
@@ -176,6 +177,8 @@ class Finance(commands.Cog):
         self.bot = bot
         self.session = None
         self.base_url = "https://api.upbit.com/v1"
+        self.alert_channel_id = None
+        self.price_alert_task.start()  # 가격 알림 task 시작
         
     async def init_session(self):
         if not self.session:
@@ -244,7 +247,7 @@ class Finance(commands.Cog):
         embed_color = self.get_change_color(main_change_rate)
 
         embed = discord.Embed(
-            title=f"📊 {korean_name} ({symbol}) 실시간 시세",
+            title=f" {korean_name} ({symbol}) 실시간 시세",
             color=embed_color,
             timestamp=datetime.now(pytz.UTC)
         )
@@ -342,7 +345,7 @@ class Finance(commands.Cog):
                 description=(
                     f"```{str(ve)}```\n"
                     "코인 심볼(예: BTC, ETH) 또는\n"
-                    "코인 이름(예: 비트코인, 이더리움)으로 검색해주세요."
+                    "코인 이름(예: 비트코인, 이더리움)로 검색해주세요."
                 ),
                 color=discord.Color.red()
             )
@@ -361,6 +364,152 @@ class Finance(commands.Cog):
         if self.session:
             import asyncio
             asyncio.create_task(self.close_session())
+
+    async def fetch_all_krw_markets(self) -> List[Dict]:
+        """모든 원화 마켓 시세 조회"""
+        try:
+            await self.init_session()
+            # 원화 마켓 목록 조회
+            markets_url = f"{self.base_url}/market/all"
+            async with self.session.get(markets_url) as response:
+                if response.status != 200:
+                    raise Exception("마켓 목록 조회 실패")
+                markets_data = await response.json()
+                
+            # KRW 마켓만 필터링
+            krw_markets = [market["market"] for market in markets_data 
+                         if market["market"].startswith("KRW-")]
+            
+            # 시세 조회
+            return await self.fetch_price(krw_markets)
+                
+        except Exception as e:
+            logging.error(f"전체 마켓 조회 중 오류: {e}")
+            raise
+
+    async def get_top_markets(self) -> discord.Embed:
+        """BTC + TOP 5 거래대금 코인 시세 임베드 생성"""
+        try:
+            # 전체 원화 마켓 데이터 조회
+            all_markets = await self.fetch_all_krw_markets()
+            
+            # 비트코인 데이터 찾기
+            btc_data = next((item for item in all_markets 
+                           if item["market"] == "KRW-BTC"), None)
+            
+            # 거래대금 기준 정렬
+            sorted_markets = sorted(all_markets, 
+                                 key=lambda x: x["acc_trade_price_24h"], 
+                                 reverse=True)
+            
+            # TOP 5 추출 (BTC 제외)
+            top_markets = [market for market in sorted_markets 
+                         if market["market"] != "KRW-BTC"][:5]
+            
+            # 임베드 생성
+            embed = discord.Embed(
+                title="📊 실시간 암호화폐 시세 요약",
+                description="BTC + 거래대금 TOP 5",
+                color=discord.Color.blue(),
+                timestamp=datetime.now(pytz.UTC)
+            )
+            
+            # 비트코인 정보 추가
+            if btc_data:
+                self.add_market_field(embed, btc_data, "📈 비트코인 (BTC)")
+            
+            # TOP 5 정보 추가
+            for idx, market in enumerate(top_markets, 1):
+                symbol = market["market"].split("-")[1]
+                korean_name = COIN_NAMES.get(symbol, symbol)
+                self.add_market_field(embed, market, 
+                                    f"#{idx} {korean_name} ({symbol})")
+            
+            korea_time = datetime.now(pytz.timezone('Asia/Seoul'))
+            embed.set_footer(
+                text=f"업비트 기준 • {korea_time.strftime('%Y-%m-%d %H:%M:%S')} KST"
+            )
+            
+            return embed
+            
+        except Exception as e:
+            logging.error(f"TOP 마켓 데이터 처리 중 오류 발생: {e}")
+            raise
+
+    def add_market_field(self, embed: discord.Embed, market_data: Dict, title: str):
+        """임베드에 마켓 정보 필드 추가"""
+        current_price = market_data["trade_price"]
+        change_rate = market_data["signed_change_rate"] * 100
+        change_price = market_data["signed_change_price"]
+        acc_trade_price_24h = market_data["acc_trade_price_24h"]
+        
+        # 가격 변동 화살표
+        change_emoji = "🔺" if change_rate > 0 else "🔻" if change_rate < 0 else "▪"
+        price_trend = "상승" if change_rate > 0 else "하락" if change_rate < 0 else "보합"
+        
+        embed.add_field(
+            name=title,
+            value=f"```\n"
+                  f"현재가: {self.format_price(current_price, 'KRW')} KRW\n"
+                  f"전일대비: {change_emoji} {price_trend} {abs(change_rate):.2f}% "
+                  f"({self.format_price(abs(change_price), 'KRW')} KRW)\n"
+                  f"거래대금: {acc_trade_price_24h/1000000:,.0f}백만원\n"
+                  f"```",
+            inline=False
+        )
+
+    @tasks.loop(hours=3)
+    async def price_alert_task(self):
+        """3시간 간격으로 시세 알림"""
+        if not self.alert_channel_id:
+            return
+            
+        try:
+            channel = self.bot.get_channel(self.alert_channel_id)
+            if not channel:
+                return
+                
+            embed = await self.get_top_markets()
+            await channel.send(embed=embed)
+            
+        except Exception as e:
+            logging.error(f"시세 알림 중 오류 발생: {e}")
+
+    @app_commands.command(name="시세설정", description="실시간 시세 알림을 받을 채널을 설정합니다")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_price_channel(self, interaction: discord.Interaction):
+        """시세 알림 채널 설정"""
+        self.alert_channel_id = interaction.channel.id
+        
+        embed = discord.Embed(
+            title="✅ 시세 알림 채널 설정 완료",
+            description="3시간 간격으로 비트코인과 거래대금 TOP 5 코인의 시세 정보가 전송됩니다.",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="📍 설정된 채널",
+            value=interaction.channel.mention,
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="인기코인", description="거래대금 기준 TOP 5 코인과 비트코인 시세를 조회합니다")
+    async def check_top_coins(self, interaction: discord.Interaction):
+        """인기 코인 시세 조회"""
+        await interaction.response.defer()
+        
+        try:
+            embed = await self.get_top_markets()
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ 조회 실패",
+                description="```시세 정보를 불러오는 중 오류가 발생했습니다.\n잠시 후 다시 시도해주세요.```",
+                color=discord.Color.red()
+            )
+            logging.error(f"인기 코인 조회 중 오류: {e}")
+            await interaction.followup.send(embed=error_embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Finance(bot))
