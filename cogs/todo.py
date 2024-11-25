@@ -31,7 +31,7 @@ class AddTodoModal(Modal):
                 return
 
             if not interaction.guild:
-                await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
+                await interaction.response.send_message("이 명령어는 서버에만 사용할 수 있습니다.", ephemeral=True)
                 return
 
             valid_tasks = [task.value.strip() for task in self.tasks if task.value.strip()]
@@ -325,19 +325,59 @@ class Todo(commands.Cog):
             self.weekly_todo_messages[guild_id] = {}
         self.weekly_todo_messages[guild_id][user_id] = message.id
 
+class WeeklyTodoModal(Modal):
+    def __init__(self, title: str):
+        super().__init__(title=title)
+        self.todo_content = TextInput(
+            label="주간 퀘스트",
+            placeholder="완료할 퀘스트를 입력하세요",
+            required=True,
+            max_length=100
+        )
+        self.add_item(self.todo_content)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.todo_content = self.todo_content.value
+
 class WeeklyTodoView(discord.ui.View):
     def __init__(self, todos: list, cog: Todo):
         super().__init__(timeout=None)
         self.todos = todos
         self.cog = cog
+        self.setup_view()
 
-    @discord.ui.button(label="할 일 추가", style=discord.ButtonStyle.green, custom_id="add_weekly_todo")
+    def setup_view(self):
+        """버튼 레이아웃 설정"""
+        # 퀘스트 추가 버튼은 이미 구현되어 있으므로 완료/삭제 버튼만 추가
+        for i, todo in enumerate(self.todos):
+            # 완료 버튼
+            complete_button = Button(
+                style=discord.ButtonStyle.secondary if todo["completed"] else discord.ButtonStyle.success,
+                emoji="✅" if todo["completed"] else "⬜",
+                custom_id=f"weekly_complete_{i}",
+                row=i + 1
+            )
+            complete_button.callback = self.complete_button_callback
+            self.add_item(complete_button)
+
+            # 삭제 버튼
+            delete_button = Button(
+                label="삭제",
+                style=discord.ButtonStyle.danger,
+                emoji="🗑️",
+                custom_id=f"weekly_delete_{i}",
+                row=i + 1
+            )
+            delete_button.callback = self.delete_button_callback
+            self.add_item(delete_button)
+
+    @discord.ui.button(label="퀘스트 추가", style=discord.ButtonStyle.green, custom_id="add_weekly_todo", row=0)
     async def add_todo(self, interaction: discord.Interaction, button: discord.ui.Button):
         if len(self.todos) >= 19:
-            await interaction.response.send_message("할 일은 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
+            await interaction.response.send_message("퀘스트는 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
             return
             
-        modal = TodoModal(title="주간 할 일 추가")
+        modal = WeeklyTodoModal(title="주간 퀘스트 추가")
         await interaction.response.send_modal(modal)
         await modal.wait()
         
@@ -347,10 +387,57 @@ class WeeklyTodoView(discord.ui.View):
             user_id = str(interaction.user.id)
             weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
             content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+            self.clear_items()  # 기존 버튼 제거
+            self.setup_view()   # 버튼 다시 설정
             await interaction.message.edit(content=content, view=self)
 
-    # 완료 및 삭제 버튼도 일일 할 일과 동일한 방식으로 구현
-    # (코드 생략)
+    async def complete_button_callback(self, interaction: discord.Interaction):
+        """퀘스트 완료/미완료 토글"""
+        # 메시지 소유자 확인
+        content = interaction.message.content
+        if not content.startswith(f"📅 {interaction.user.display_name}님의 주간 할 일"):
+            await interaction.response.send_message("자신의 퀘스트만 수정할 수 있습니다.", ephemeral=True)
+            return
+
+        custom_id = interaction.data["custom_id"]
+        index = int(custom_id.split("_")[2])
+        
+        # 완료 상태 토글
+        self.todos[index]["completed"] = not self.todos[index]["completed"]
+        
+        # 메시지 업데이트
+        guild_id = str(interaction.guild_id)
+        user_id = str(interaction.user.id)
+        weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
+        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        
+        self.clear_items()  # 기존 버튼 제거
+        self.setup_view()   # 버튼 다시 설정
+        await interaction.response.edit_message(content=content, view=self)
+
+    async def delete_button_callback(self, interaction: discord.Interaction):
+        """퀘스트 삭제"""
+        # 메시지 소유자 확인
+        content = interaction.message.content
+        if not content.startswith(f"📅 {interaction.user.display_name}님의 주간 할 일"):
+            await interaction.response.send_message("자신의 퀘스트만 삭제할 수 있습니다.", ephemeral=True)
+            return
+
+        custom_id = interaction.data["custom_id"]
+        index = int(custom_id.split("_")[2])
+        
+        # 퀘스트 삭제
+        del self.todos[index]
+        
+        # 메시지 업데이트
+        guild_id = str(interaction.guild_id)
+        user_id = str(interaction.user.id)
+        weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
+        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        
+        self.clear_items()
+        self.setup_view() 
+        await interaction.response.edit_message(content=content, view=self)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Todo(bot))
