@@ -180,35 +180,46 @@ class Todo(commands.Cog):
         return self.weekly_todos[guild_id][user_id]
 
     def create_weekly_todo_message(self, user: discord.User, weekly_todo_data: dict) -> str:
-        """주간 할 일 메시지를 생성합니다"""
+        """주간 퀘스트 메시지 생성"""
         todos = weekly_todo_data['items']
         start_date = weekly_todo_data['start_date']
         
         if not start_date:
-            return "주간 할 일이 없습니다."
+            return "주간 퀘스트가 없습니다."
             
         end_date = datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=6)
         today = datetime.now(self.kst).date()
         days_left = (end_date.date() - today).days
         
-        status = "🟢 진행중" if days_left >= 0 else "🔴 만료됨"
-        period = f"{start_date} ~ {end_date.strftime('%Y-%m-%d')}"
-        remaining = f"D-{days_left}" if days_left >= 0 else "만료"
-        
-        header = f"📅 {user.display_name}님의 주간 할 일\n"
-        header += f"기간: {period} ({remaining})\n"
-        header += f"상태: {status}\n"
-        header += "─" * 30 + "\n"
+        message = [
+            f"# 📋 {user.display_name}님의 주간퀘스트",
+            f"**{start_date} ~ {end_date.strftime('%Y-%m-%d')}**",
+            f"**남은 기간**: `D-{days_left if days_left >= 0 else '만료'}`\n"
+        ]
 
-        if not todos:
-            return header + "등록된 할 일이 없습니다."
+        if todos:
+            completed = sum(1 for todo in todos if todo["completed"])
+            total = len(todos)
+            progress = (completed / total) * 100 if total > 0 else 0
+            
+            message.append(f"**진행률**: `{completed}/{total}` (`{progress:.1f}%`)\n")
+            message.append("**📌 퀘스트 목록**")
+            for todo in todos:
+                if todo["completed"]:
+                    message.append(f"> ✅ ~~{todo['content']}~~")
+                else:
+                    message.append(f"> ⬜ {todo['content']}")
+        else:
+            message.extend([
+                "```md",
+                "# 새로운 주간퀘스트가 시작되었습니다!",
+                "* '퀘스트 추가' 버튼으로 퀘스트를 추가하세요",
+                "* 최대 19개까지 등록 가능",
+                "* 7일이 지나면 자동으로 초기화됩니다",
+                "```"
+            ])
 
-        todo_list = ""
-        for i, todo in enumerate(todos, 1):
-            status = "✅" if todo["completed"] else "⬜"
-            todo_list += f"{status} {i}. {todo['content']}\n"
-
-        return header + todo_list
+        return "\n".join(message)
 
     @tasks.loop(time=time(hour=0, minute=0))  # 매일 자정
     async def cleanup_task(self):
@@ -326,18 +337,45 @@ class Todo(commands.Cog):
         self.weekly_todo_messages[guild_id][user_id] = message.id
 
 class WeeklyTodoModal(Modal):
-    def __init__(self, title: str):
-        super().__init__(title=title)
-        self.todo_content = TextInput(
-            label="주간 퀘스트",
-            placeholder="완료할 퀘스트를 입력하세요",
-            required=True,
-            max_length=100
-        )
-        self.add_item(self.todo_content)
+    def __init__(self):  # title 파라미터 제거
+        super().__init__(title="주간 퀘스트 추가")
+        self.tasks = []
+        for i in range(1, 4):
+            task = TextInput(
+                label=f"퀘스트 {i}",
+                placeholder=f"{i}번째 퀘스트를 입력하세요",
+                required=i == 1,
+                max_length=100
+            )
+            self.tasks.append(task)
+            self.add_item(task)
 
     async def on_submit(self, interaction: discord.Interaction):
-        self.todo_content = self.todo_content.value
+        try:
+            cog = interaction.client.get_cog('Todo')
+            if not cog:
+                await interaction.response.send_message("오류가 발생했습니다.", ephemeral=True)
+                return
+
+            if not interaction.guild:
+                await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
+                return
+
+            valid_tasks = [task.value.strip() for task in self.tasks if task.value.strip()]
+            guild_id = str(interaction.guild_id)
+            user_id = str(interaction.user.id)
+            weekly_todo_data = cog.get_user_weekly_todos(user_id, guild_id)
+            
+            # 새로운 퀘스트 추가
+            for task in valid_tasks:
+                weekly_todo_data['items'].append({"content": task, "completed": False})
+            
+            view = WeeklyTodoView(weekly_todo_data['items'], cog)
+            content = cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+            await interaction.response.edit_message(content=content, view=view)
+            
+        except Exception as e:
+            await interaction.response.send_message(f"퀘스트 추가 중 오류가 발생했습니다: {str(e)}", ephemeral=True)
 
 class WeeklyTodoView(discord.ui.View):
     def __init__(self, todos: list, cog: Todo):
@@ -377,7 +415,7 @@ class WeeklyTodoView(discord.ui.View):
             await interaction.response.send_message("퀘스트는 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
             return
             
-        modal = WeeklyTodoModal(title="주간 퀘스트 추가")
+        modal = WeeklyTodoModal()
         await interaction.response.send_modal(modal)
         await modal.wait()
         
