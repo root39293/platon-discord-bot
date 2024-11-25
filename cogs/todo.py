@@ -433,7 +433,7 @@ class WeeklyTodoView(discord.ui.View):
         """퀘스트 완료/미완료 토글"""
         # 메시지 소유자 확인
         content = interaction.message.content
-        if not content.startswith(f"📅 {interaction.user.display_name}님의 주간 할 일"):
+        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
             await interaction.response.send_message("자신의 퀘스트만 수정할 수 있습니다.", ephemeral=True)
             return
 
@@ -457,7 +457,7 @@ class WeeklyTodoView(discord.ui.View):
         """퀘스트 삭제"""
         # 메시지 소유자 확인
         content = interaction.message.content
-        if not content.startswith(f"📅 {interaction.user.display_name}님의 주간 할 일"):
+        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
             await interaction.response.send_message("자신의 퀘스트만 삭제할 수 있습니다.", ephemeral=True)
             return
 
