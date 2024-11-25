@@ -85,7 +85,10 @@ class MyBot(commands.Bot):
             # 할 일 관련 명령어
             embed.add_field(
                 name="📝 할 일",
-                value="`/할일` - 개인 할 일 목록 관리",
+                value=(
+                    "`/할일` - 개인 할 일 목록 관리\n"
+                    "`/주간퀘` - 메이플 주간퀘스트 체크리스트"
+                ),
                 inline=False
             )
 

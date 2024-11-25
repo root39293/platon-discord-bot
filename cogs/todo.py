@@ -3,7 +3,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytz
 from typing import List, Dict
 from discord.ext import tasks
@@ -148,8 +148,11 @@ class TodoView(View):
 class Todo(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.todos = {}  # {guild_id: {user_id: [TodoItem]}}
-        self.todo_messages = {}  # {guild_id: {user_id: message_id}}
+        self.todos = {}  # 일일 할 일
+        self.weekly_todos = {}  # 주간 할 일
+        self.todo_messages = {}  # 일일 할 일 메시지
+        self.weekly_todo_messages = {}  # 주간 할 일 메시지
+        self.kst = pytz.timezone('Asia/Seoul')
         self.cleanup_task.start()
 
     def get_user_todos(self, user_id: str, guild_id: str) -> List[TodoItem]:
@@ -164,6 +167,48 @@ class Todo(commands.Cog):
         if guild_id not in self.todos:
             self.todos[guild_id] = {}
         self.todos[guild_id][user_id] = todos
+
+    def get_user_weekly_todos(self, user_id: str, guild_id: str) -> list:
+        """사용자의 주간 할 일 목록을 가져옵니다"""
+        if guild_id not in self.weekly_todos:
+            self.weekly_todos[guild_id] = {}
+        if user_id not in self.weekly_todos[guild_id]:
+            self.weekly_todos[guild_id][user_id] = {
+                'items': [],
+                'start_date': None
+            }
+        return self.weekly_todos[guild_id][user_id]
+
+    def create_weekly_todo_message(self, user: discord.User, weekly_todo_data: dict) -> str:
+        """주간 할 일 메시지를 생성합니다"""
+        todos = weekly_todo_data['items']
+        start_date = weekly_todo_data['start_date']
+        
+        if not start_date:
+            return "주간 할 일이 없습니다."
+            
+        end_date = datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=6)
+        today = datetime.now(self.kst).date()
+        days_left = (end_date.date() - today).days
+        
+        status = "🟢 진행중" if days_left >= 0 else "🔴 만료됨"
+        period = f"{start_date} ~ {end_date.strftime('%Y-%m-%d')}"
+        remaining = f"D-{days_left}" if days_left >= 0 else "만료"
+        
+        header = f"📅 {user.display_name}님의 주간 할 일\n"
+        header += f"기간: {period} ({remaining})\n"
+        header += f"상태: {status}\n"
+        header += "─" * 30 + "\n"
+
+        if not todos:
+            return header + "등록된 할 일이 없습니다."
+
+        todo_list = ""
+        for i, todo in enumerate(todos, 1):
+            status = "✅" if todo["completed"] else "⬜"
+            todo_list += f"{status} {i}. {todo['content']}\n"
+
+        return header + todo_list
 
     @tasks.loop(time=time(hour=0, minute=0))  # 매일 자정
     async def cleanup_task(self):
@@ -237,6 +282,75 @@ class Todo(commands.Cog):
             ])
 
         return "\n".join(message)
+
+    @app_commands.command(name="주간퀘", description="메이플 주간퀘스트 체크리스트")
+    async def weekly_todo(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
+            return
+        
+        guild_id = str(interaction.guild.id)
+        user_id = str(interaction.user.id)
+        
+        weekly_todo_data = self.get_user_weekly_todos(user_id, guild_id)
+        
+        # 활성화된 주간 할 일이 없거나 만료된 경우 새로 시작
+        if not weekly_todo_data['start_date']:
+            weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
+        else:
+            start_date = datetime.strptime(weekly_todo_data['start_date'], "%Y-%m-%d")
+            end_date = start_date + timedelta(days=6)
+            if datetime.now(self.kst).date() > end_date.date():
+                weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
+                weekly_todo_data['items'] = []  # 만료된 할 일 초기화
+
+        view = WeeklyTodoView(weekly_todo_data['items'], self)
+        content = self.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        
+        # 이전 메시지가 있으면 업데이트, 없으면 새로 생성
+        if guild_id in self.weekly_todo_messages and user_id in self.weekly_todo_messages[guild_id]:
+            try:
+                old_message = await interaction.channel.fetch_message(self.weekly_todo_messages[guild_id][user_id])
+                await old_message.edit(content=content, view=view)
+                await interaction.response.send_message("주간 할 일 목록을 업데이트했습니다.", ephemeral=True)
+                return
+            except discord.NotFound:
+                pass
+
+        # 새 메시지 전송
+        response = await interaction.response.send_message(content=content, view=view)
+        message = await interaction.original_response()
+        
+        if guild_id not in self.weekly_todo_messages:
+            self.weekly_todo_messages[guild_id] = {}
+        self.weekly_todo_messages[guild_id][user_id] = message.id
+
+class WeeklyTodoView(discord.ui.View):
+    def __init__(self, todos: list, cog: Todo):
+        super().__init__(timeout=None)
+        self.todos = todos
+        self.cog = cog
+
+    @discord.ui.button(label="할 일 추가", style=discord.ButtonStyle.green, custom_id="add_weekly_todo")
+    async def add_todo(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if len(self.todos) >= 19:
+            await interaction.response.send_message("할 일은 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
+            return
+            
+        modal = TodoModal(title="주간 할 일 추가")
+        await interaction.response.send_modal(modal)
+        await modal.wait()
+        
+        if modal.todo_content:
+            self.todos.append({"content": modal.todo_content, "completed": False})
+            guild_id = str(interaction.guild_id)
+            user_id = str(interaction.user.id)
+            weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
+            content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+            await interaction.message.edit(content=content, view=self)
+
+    # 완료 및 삭제 버튼도 일일 할 일과 동일한 방식으로 구현
+    # (코드 생략)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Todo(bot))
