@@ -37,11 +37,9 @@ class AddTodoModal(Modal):
             valid_tasks = [task.value.strip() for task in self.tasks if task.value.strip()]
             todos = cog.get_user_todos(str(interaction.user.id), str(interaction.guild.id))
             
-            # 새로운 할 일 추가
             for task in valid_tasks:
                 todos.append(TodoItem(task))
-            
-            # 메모리에 저장
+
             cog.save_user_todos(str(interaction.user.id), str(interaction.guild.id), todos)
             
             view = TodoView(todos, cog)
@@ -87,19 +85,18 @@ class TodoView(View):
         self.add_item(add_button)
 
         for i, todo in enumerate(self.todos):
-            # 완료 버튼
+
             complete_button = TodoButton(i, todo.completed)
             complete_button.callback = self.todo_button_callback
-            complete_button.row = i + 1  # 각 할 일마다 새로운 행
+            complete_button.row = i + 1 
             self.add_item(complete_button)
 
-            # 삭제 버튼
             delete_button = Button(
                 label="삭제",
                 style=discord.ButtonStyle.danger,
                 emoji="🗑️",
                 custom_id=f"delete_todo_{i}",
-                row=i + 1  # 완료 버튼과 같은 행
+                row=i + 1  
             )
             delete_button.callback = self.delete_button_callback
             self.add_item(delete_button)
@@ -109,7 +106,6 @@ class TodoView(View):
         await interaction.response.send_modal(modal)
 
     async def todo_button_callback(self, interaction: discord.Interaction):
-        # 할 일 목록 소유자 확인
         content = interaction.message.content
         if not content.startswith(f"# 📋 {interaction.user.display_name}님의 할 일"):
             await interaction.response.send_message("자신의 할 일만 수정할 수 있습니다.", ephemeral=True)
@@ -133,7 +129,6 @@ class TodoView(View):
         custom_id = interaction.data["custom_id"]
         index = int(custom_id.split("_")[2])
         
-        # 할 일 삭제
         del self.todos[index]
         self.cog.save_user_todos(
             str(interaction.user.id),
@@ -148,10 +143,10 @@ class TodoView(View):
 class Todo(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.todos = {}  # 일일 할 일
-        self.weekly_todos = {}  # 주간 할 일
-        self.todo_messages = {}  # 일일 할 일 메시지
-        self.weekly_todo_messages = {}  # 주간 할 일 메시지
+        self.todos = {}
+        self.weekly_todos = {}
+        self.todo_messages = {}  
+        self.weekly_todo_messages = {}  
         self.kst = pytz.timezone('Asia/Seoul')
         self.cleanup_task.start()
 
@@ -221,11 +216,11 @@ class Todo(commands.Cog):
 
         return "\n".join(message)
 
-    @tasks.loop(time=time(hour=0, minute=0))  # 매일 자정
+    @tasks.loop(time=time(hour=0, minute=0))  
     async def cleanup_task(self):
         """할 일 목록 초기화"""
         self.todos.clear()
-        self.todo_messages.clear()  # 메시지 ID도 초기화
+        self.todo_messages.clear()  
         logging.info("할 일 목록이 초기화되었습니다.")
 
     @app_commands.command(name="할일", description="할 일 목록을 관리합니다")
@@ -234,7 +229,6 @@ class Todo(commands.Cog):
             await interaction.response.send_message("이 명령어는 서버에서만 사용할 수 있습니다.", ephemeral=True)
             return
         
-        # 이전 메시지 삭제
         guild_id = str(interaction.guild.id)
         user_id = str(interaction.user.id)
         
@@ -246,7 +240,7 @@ class Todo(commands.Cog):
                     old_message = await channel.fetch_message(old_message_id)
                     await old_message.delete()
                 except discord.NotFound:
-                    pass  # 메시지가 이미 삭제된 경우
+                    pass 
             except Exception as e:
                 logging.error(f"이전 메시지 삭제 중 오류 발생: {e}")
 
@@ -254,7 +248,6 @@ class Todo(commands.Cog):
         view = TodoView(todos, self)
         content = self.create_todo_message(interaction.user, todos)
         
-        # 새 메시지 전송 및 ID 저장
         response = await interaction.response.send_message(content=content, view=view)
         message = await interaction.original_response()
         
@@ -305,7 +298,6 @@ class Todo(commands.Cog):
         
         weekly_todo_data = self.get_user_weekly_todos(user_id, guild_id)
         
-        # 활성화된 주간 할 일이 없거나 만료된 경우 새로 시작
         if not weekly_todo_data['start_date']:
             weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
         else:
@@ -313,12 +305,11 @@ class Todo(commands.Cog):
             end_date = start_date + timedelta(days=6)
             if datetime.now(self.kst).date() > end_date.date():
                 weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
-                weekly_todo_data['items'] = []  # 만료된 할 일 초기화
+                weekly_todo_data['items'] = [] 
 
         view = WeeklyTodoView(weekly_todo_data['items'], self)
         content = self.create_weekly_todo_message(interaction.user, weekly_todo_data)
         
-        # 이전 메시지가 있으면 업데이트, 없으면 새로 생성
         if guild_id in self.weekly_todo_messages and user_id in self.weekly_todo_messages[guild_id]:
             try:
                 old_message = await interaction.channel.fetch_message(self.weekly_todo_messages[guild_id][user_id])
@@ -328,7 +319,6 @@ class Todo(commands.Cog):
             except discord.NotFound:
                 pass
 
-        # 새 메시지 전송
         response = await interaction.response.send_message(content=content, view=view)
         message = await interaction.original_response()
         
@@ -337,7 +327,7 @@ class Todo(commands.Cog):
         self.weekly_todo_messages[guild_id][user_id] = message.id
 
 class WeeklyTodoModal(Modal):
-    def __init__(self):  # title 파라미터 제거
+    def __init__(self):
         super().__init__(title="주간 퀘스트 추가")
         self.tasks = []
         for i in range(1, 4):
@@ -365,8 +355,7 @@ class WeeklyTodoModal(Modal):
             guild_id = str(interaction.guild_id)
             user_id = str(interaction.user.id)
             weekly_todo_data = cog.get_user_weekly_todos(user_id, guild_id)
-            
-            # 새로운 퀘스트 추가
+
             for task in valid_tasks:
                 weekly_todo_data['items'].append({"content": task, "completed": False})
             
@@ -386,9 +375,19 @@ class WeeklyTodoView(discord.ui.View):
 
     def setup_view(self):
         """버튼 레이아웃 설정"""
-        # 퀘스트 추가 버튼은 이미 구현되어 있으므로 완료/삭제 버튼만 추가
+        self.clear_items()  
+
+        add_button = Button(
+            label="퀘스트 추가",
+            style=discord.ButtonStyle.green,
+            emoji="📝",
+            custom_id="add_weekly_todo",
+            row=0
+        )
+        add_button.callback = self.add_todo
+        self.add_item(add_button)
+
         for i, todo in enumerate(self.todos):
-            # 완료 버튼
             complete_button = Button(
                 style=discord.ButtonStyle.secondary if todo["completed"] else discord.ButtonStyle.success,
                 emoji="✅" if todo["completed"] else "⬜",
@@ -398,7 +397,6 @@ class WeeklyTodoView(discord.ui.View):
             complete_button.callback = self.complete_button_callback
             self.add_item(complete_button)
 
-            # 삭제 버튼
             delete_button = Button(
                 label="삭제",
                 style=discord.ButtonStyle.danger,
@@ -409,8 +407,7 @@ class WeeklyTodoView(discord.ui.View):
             delete_button.callback = self.delete_button_callback
             self.add_item(delete_button)
 
-    @discord.ui.button(label="퀘스트 추가", style=discord.ButtonStyle.green, custom_id="add_weekly_todo", row=0)
-    async def add_todo(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def add_todo(self, interaction: discord.Interaction):
         if len(self.todos) >= 19:
             await interaction.response.send_message("퀘스트는 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
             return
@@ -425,13 +422,12 @@ class WeeklyTodoView(discord.ui.View):
             user_id = str(interaction.user.id)
             weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
             content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
-            self.clear_items()  # 기존 버튼 제거
-            self.setup_view()   # 버튼 다시 설정
+            self.clear_items() 
+            self.setup_view()   
             await interaction.message.edit(content=content, view=self)
 
     async def complete_button_callback(self, interaction: discord.Interaction):
         """퀘스트 완료/미완료 토글"""
-        # 메시지 소유자 확인
         content = interaction.message.content
         if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
             await interaction.response.send_message("자신의 퀘스트만 수정할 수 있습니다.", ephemeral=True)
@@ -440,22 +436,19 @@ class WeeklyTodoView(discord.ui.View):
         custom_id = interaction.data["custom_id"]
         index = int(custom_id.split("_")[2])
         
-        # 완료 상태 토글
         self.todos[index]["completed"] = not self.todos[index]["completed"]
         
-        # 메시지 업데이트
         guild_id = str(interaction.guild_id)
         user_id = str(interaction.user.id)
         weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
         content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
         
-        self.clear_items()  # 기존 버튼 제거
-        self.setup_view()   # 버튼 다시 설정
+        self.clear_items() 
+        self.setup_view()   
         await interaction.response.edit_message(content=content, view=self)
 
     async def delete_button_callback(self, interaction: discord.Interaction):
         """퀘스트 삭제"""
-        # 메시지 소유자 확인
         content = interaction.message.content
         if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
             await interaction.response.send_message("자신의 퀘스트만 삭제할 수 있습니다.", ephemeral=True)
@@ -463,11 +456,9 @@ class WeeklyTodoView(discord.ui.View):
 
         custom_id = interaction.data["custom_id"]
         index = int(custom_id.split("_")[2])
-        
-        # 퀘스트 삭제
+
         del self.todos[index]
-        
-        # 메시지 업데이트
+
         guild_id = str(interaction.guild_id)
         user_id = str(interaction.user.id)
         weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
