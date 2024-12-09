@@ -1,6 +1,10 @@
 # Platon Discord Bot
-![version](https://img.shields.io/badge/version-0.1.0-blue.svg)
-![Platon Bot](./assets/platon.jpg)
+
+<div align="center">
+  <img src="./assets/platon.jpg" alt="Platon Bot" width="400"/>
+  
+  [![version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/root39293/platon-discord-bot)
+</div>
 
 ## Introduction
 Python based Discord server management and information provider assistant
