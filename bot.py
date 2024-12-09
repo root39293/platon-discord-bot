@@ -111,7 +111,7 @@ class MyBot(commands.Bot):
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
-                name=f"v0.1.0 | Developed by github.com/root39293"
+                name=f"v0.1.0 | by faith6 (github.com/root39293)"
             )
         )
 
