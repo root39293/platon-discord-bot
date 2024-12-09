@@ -1,8 +1,9 @@
 # Platon Discord Bot
 ![version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Platon Bot](./assets/platon.jpg)
 
 ## Introduction
-디스코드 서버 관리 및 정보 제공 봇
+Python based Discord server management and information provider assistant
 
 ## Features
 - 일일 초기화되는 개인 할일 관리 시스템
