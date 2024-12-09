@@ -1,0 +1,8 @@
+{
+  "name": "platon-discord-bot",
+  "version": "0.1.0",
+  "description": "디스코드 서버 관리 및 정보 제공 봇",
+  "author": "faith6",
+  "license": "MIT",
+  "private": false
+} 
