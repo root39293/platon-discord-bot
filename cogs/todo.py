@@ -37,7 +37,13 @@ class AddTodoModal(Modal):
             valid_tasks = [task.value.strip() for task in self.tasks if task.value.strip()]
             todos = cog.get_user_todos(str(interaction.user.id), str(interaction.guild.id))
             
+            if len(todos) >= 4:  # 최대 4개까지만 추가 가능 (5번째 추가 시도시 경고)
+                await interaction.response.send_message("할 일은 최대 4개까지만 등록할 수 있습니다.", ephemeral=True)
+                return
+            
             for task in valid_tasks:
+                if len(todos) >= 4:  # 여러 개 추가 시에도 최대 4개 제한
+                    break
                 todos.append(TodoItem(task))
 
             cog.save_user_todos(str(interaction.user.id), str(interaction.guild.id), todos)
@@ -71,6 +77,12 @@ class TodoView(View):
         self.cog = cog
         self.setup_view()
 
+    @classmethod
+    def persistent_view_register(cls, bot):
+        """영구적인 View 등록"""
+        view = cls([], None)  # 임시 view 생성
+        bot.add_view(view)  # 봇에 view 등록
+
     def setup_view(self):
         self.clear_items()
         
@@ -85,10 +97,12 @@ class TodoView(View):
         self.add_item(add_button)
 
         for i, todo in enumerate(self.todos):
-
+            if i >= 4:  # 최대 5개까지만 지원 (row 0은 추가버튼용)
+                break
+            
             complete_button = TodoButton(i, todo.completed)
             complete_button.callback = self.todo_button_callback
-            complete_button.row = i + 1 
+            complete_button.row = i + 1
             self.add_item(complete_button)
 
             delete_button = Button(
@@ -96,7 +110,7 @@ class TodoView(View):
                 style=discord.ButtonStyle.danger,
                 emoji="🗑️",
                 custom_id=f"delete_todo_{i}",
-                row=i + 1  
+                row=i + 1
             )
             delete_button.callback = self.delete_button_callback
             self.add_item(delete_button)
@@ -149,6 +163,10 @@ class Todo(commands.Cog):
         self.weekly_todo_messages = {}  
         self.kst = pytz.timezone('Asia/Seoul')
         self.cleanup_task.start()
+        
+        # View 영구 등록
+        WeeklyTodoView.persistent_view_register(bot)
+        TodoView.persistent_view_register(bot)
 
     def get_user_todos(self, user_id: str, guild_id: str) -> List[TodoItem]:
         """유저의 할 일 목록 조회"""
@@ -163,14 +181,14 @@ class Todo(commands.Cog):
             self.todos[guild_id] = {}
         self.todos[guild_id][user_id] = todos
 
-    def get_user_weekly_todos(self, user_id: str, guild_id: str) -> list:
+    def get_user_weekly_todos(self, user_id: str, guild_id: str) -> dict:
         """사용자의 주간 할 일 목록을 가져옵니다"""
         if guild_id not in self.weekly_todos:
             self.weekly_todos[guild_id] = {}
         if user_id not in self.weekly_todos[guild_id]:
             self.weekly_todos[guild_id][user_id] = {
                 'items': [],
-                'start_date': None
+                'start_date': datetime.now(self.kst).strftime("%Y-%m-%d")
             }
         return self.weekly_todos[guild_id][user_id]
 
@@ -209,7 +227,7 @@ class Todo(commands.Cog):
                 "```md",
                 "# 새로운 주간퀘스트가 시작되었습니다!",
                 "* '퀘스트 추가' 버튼으로 퀘스트를 추가하세요",
-                "* 최대 19개까지 등록 가능",
+                "* 최대 4개까지 등록 가능",
                 "* 7일이 지나면 자동으로 초기화됩니다",
                 "```"
             ])
@@ -296,30 +314,28 @@ class Todo(commands.Cog):
         guild_id = str(interaction.guild.id)
         user_id = str(interaction.user.id)
         
+        # 이전 메시지 삭제
+        if guild_id in self.weekly_todo_messages and user_id in self.weekly_todo_messages[guild_id]:
+            try:
+                old_message = await interaction.channel.fetch_message(self.weekly_todo_messages[guild_id][user_id])
+                await old_message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass  # 메시지가 이미 삭제되었거나 권한이 없는 경우 무시
+        
         weekly_todo_data = self.get_user_weekly_todos(user_id, guild_id)
         
-        if not weekly_todo_data['start_date']:
-            weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
-        else:
+        # 주간 퀘스트 만료 체크 및 초기화
+        if weekly_todo_data['start_date']:
             start_date = datetime.strptime(weekly_todo_data['start_date'], "%Y-%m-%d")
             end_date = start_date + timedelta(days=6)
             if datetime.now(self.kst).date() > end_date.date():
                 weekly_todo_data['start_date'] = datetime.now(self.kst).strftime("%Y-%m-%d")
-                weekly_todo_data['items'] = [] 
+                weekly_todo_data['items'] = []
 
         view = WeeklyTodoView(weekly_todo_data['items'], self)
         content = self.create_weekly_todo_message(interaction.user, weekly_todo_data)
-        
-        if guild_id in self.weekly_todo_messages and user_id in self.weekly_todo_messages[guild_id]:
-            try:
-                old_message = await interaction.channel.fetch_message(self.weekly_todo_messages[guild_id][user_id])
-                await old_message.edit(content=content, view=view)
-                await interaction.response.send_message("주간 할 일 목록을 업데이트했습니다.", ephemeral=True)
-                return
-            except discord.NotFound:
-                pass
 
-        response = await interaction.response.send_message(content=content, view=view)
+        await interaction.response.send_message(content=content, view=view)
         message = await interaction.original_response()
         
         if guild_id not in self.weekly_todo_messages:
@@ -356,7 +372,13 @@ class WeeklyTodoModal(Modal):
             user_id = str(interaction.user.id)
             weekly_todo_data = cog.get_user_weekly_todos(user_id, guild_id)
 
+            if len(weekly_todo_data['items']) >= 4:  # 최대 4개까지만 추가 가능
+                await interaction.response.send_message("퀘스트는 최대 4개까지만 등록할 수 있습니다.", ephemeral=True)
+                return
+
             for task in valid_tasks:
+                if len(weekly_todo_data['items']) >= 4:  # 여러 개 추가 시에도 최대 4개 제한
+                    break
                 weekly_todo_data['items'].append({"content": task, "completed": False})
             
             view = WeeklyTodoView(weekly_todo_data['items'], cog)
@@ -373,6 +395,12 @@ class WeeklyTodoView(discord.ui.View):
         self.cog = cog
         self.setup_view()
 
+    @classmethod
+    def persistent_view_register(cls, bot):
+        """영구적인 View 등록"""
+        view = cls([], None)  # 임시 view 생성
+        bot.add_view(view)  # 봇에 view 등록
+
     def setup_view(self):
         """버튼 레이아웃 설정"""
         self.clear_items()  
@@ -388,6 +416,9 @@ class WeeklyTodoView(discord.ui.View):
         self.add_item(add_button)
 
         for i, todo in enumerate(self.todos):
+            if i >= 4:  # 최대 4개까지만 표시
+                break
+                
             complete_button = Button(
                 style=discord.ButtonStyle.secondary if todo["completed"] else discord.ButtonStyle.success,
                 emoji="✅" if todo["completed"] else "⬜",
@@ -408,28 +439,17 @@ class WeeklyTodoView(discord.ui.View):
             self.add_item(delete_button)
 
     async def add_todo(self, interaction: discord.Interaction):
-        if len(self.todos) >= 19:
-            await interaction.response.send_message("퀘스트는 최대 19개까지만 등록할 수 있습니다.", ephemeral=True)
+        if len(self.todos) >= 4:  # 최대 4개로 제한
+            await interaction.response.send_message("퀘스트는 최대 4개까지만 등록할 수 있습니다.", ephemeral=True)
             return
             
         modal = WeeklyTodoModal()
         await interaction.response.send_modal(modal)
-        await modal.wait()
-        
-        if modal.todo_content:
-            self.todos.append({"content": modal.todo_content, "completed": False})
-            guild_id = str(interaction.guild_id)
-            user_id = str(interaction.user.id)
-            weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
-            content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
-            self.clear_items() 
-            self.setup_view()   
-            await interaction.message.edit(content=content, view=self)
 
     async def complete_button_callback(self, interaction: discord.Interaction):
         """퀘스트 완료/미완료 토글"""
         content = interaction.message.content
-        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
+        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):
             await interaction.response.send_message("자신의 퀘스트만 수정할 수 있습니다.", ephemeral=True)
             return
 
@@ -441,16 +461,16 @@ class WeeklyTodoView(discord.ui.View):
         guild_id = str(interaction.guild_id)
         user_id = str(interaction.user.id)
         weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
-        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        weekly_todo_data['items'] = self.todos  # 데이터 업데이트
         
-        self.clear_items() 
-        self.setup_view()   
-        await interaction.response.edit_message(content=content, view=self)
+        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        view = WeeklyTodoView(self.todos, self.cog)
+        await interaction.response.edit_message(content=content, view=view)
 
     async def delete_button_callback(self, interaction: discord.Interaction):
         """퀘스트 삭제"""
         content = interaction.message.content
-        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):  # 헤더 형식 수정
+        if not content.startswith(f"# 📋 {interaction.user.display_name}님의 주간퀘스트"):
             await interaction.response.send_message("자신의 퀘스트만 삭제할 수 있습니다.", ephemeral=True)
             return
 
@@ -462,11 +482,11 @@ class WeeklyTodoView(discord.ui.View):
         guild_id = str(interaction.guild_id)
         user_id = str(interaction.user.id)
         weekly_todo_data = self.cog.get_user_weekly_todos(user_id, guild_id)
-        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        weekly_todo_data['items'] = self.todos  # 데이터 업데이트
         
-        self.clear_items()
-        self.setup_view() 
-        await interaction.response.edit_message(content=content, view=self)
+        content = self.cog.create_weekly_todo_message(interaction.user, weekly_todo_data)
+        view = WeeklyTodoView(self.todos, self.cog)
+        await interaction.response.edit_message(content=content, view=view)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Todo(bot))
